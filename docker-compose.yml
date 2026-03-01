@@ -1,0 +1,53 @@
+# ============================================================
+# VoxDynamics — Docker Compose
+# ============================================================
+# Usage: docker-compose up --build
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: voxdynamics-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voxdynamics}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voxdynamics_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-voxdynamics}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voxdynamics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── API Backend + Gradio UI ─────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voxdynamics-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+      - "7860:7860"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - model_cache:/root/.cache
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+volumes:
+  pgdata:
+  model_cache:
