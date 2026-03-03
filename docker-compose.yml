@@ -37,16 +37,17 @@ services:
       - .env
     ports:
       - "8000:8000"
-      - "7860:7860"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
+      - .:/app
       - model_cache:/root/.cache
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 6G
 
 volumes:
   pgdata:

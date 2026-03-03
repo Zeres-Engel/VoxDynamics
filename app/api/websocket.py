@@ -16,12 +16,23 @@ from app.db.models import EmotionLog
 from app.config import settings
 
 
+from app.db.database import get_session, get_session_by_uuid
+
 async def log_emotion_to_db(result: dict) -> None:
     """Async-safe database logging (fire-and-forget)."""
     try:
+        session_uuid = result.get("session_id")
+        if not session_uuid:
+            return
+
+        db_session_obj = await get_session_by_uuid(session_uuid)
+        if not db_session_obj:
+            print(f"[DB LOG MSG] Ignoring log: No active session found for UUID {session_uuid[:8]}")
+            return
+            
         async with get_session() as session:
             log_entry = EmotionLog(
-                session_id=result["session_id"],
+                session_id=db_session_obj.id,
                 timestamp=datetime.utcnow(),
                 emotion_label=result["emotion_label"],
                 arousal=result["arousal"],

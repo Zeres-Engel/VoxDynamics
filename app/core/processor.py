@@ -38,7 +38,7 @@ class AudioProcessor:
         self,
         sample_rate: int = 16000,
         buffer_duration_s: float = 3.0,
-        ema_alpha: float = 0.3,
+        ema_alpha: float = 0.5,   # was 0.3 — faster response to actual speech
         vad_threshold: float = 0.5,
     ):
         self.sample_rate = sample_rate

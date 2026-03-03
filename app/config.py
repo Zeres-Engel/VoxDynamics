@@ -26,8 +26,8 @@ class Settings(BaseSettings):
 
     # Audio
     sample_rate: int = 16000
-    chunk_duration_ms: int = 500          # ms per chunk from client
-    buffer_duration_s: float = 3.0        # sliding window size (seconds)
+    chunk_duration_ms: int = 300          # ms per chunk from client (reduced from 500ms)
+    buffer_duration_s: float = 2.0        # sliding window size (reduced from 3.0s)
     ema_alpha: float = 0.3                # smoothing factor
 
     # VAD

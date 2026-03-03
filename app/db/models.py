@@ -5,14 +5,37 @@
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Index
+    Column, Integer, String, Float, DateTime, Index, ForeignKey
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
     pass
+
+
+class Session(Base):
+    """Stores session metadata."""
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_uuid = Column(String(64), unique=True, nullable=False, index=True) # The string UUID used by the frontend
+    start_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+
+    emotion_logs = relationship("EmotionLog", back_populates="session", cascade="all, delete-orphan")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "session_uuid": self.session_uuid,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<Session(id={self.id}, uuid={self.session_uuid})>"
 
 
 class EmotionLog(Base):
@@ -21,7 +44,7 @@ class EmotionLog(Base):
     __tablename__ = "emotion_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(String(64), nullable=False, index=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Discrete label (mapped from dimensions)
@@ -37,6 +60,8 @@ class EmotionLog(Base):
 
     # Inference latency in milliseconds
     latency_ms = Column(Float, nullable=False, default=0.0)
+
+    session = relationship("Session", back_populates="emotion_logs")
 
     __table_args__ = (
         Index("ix_emotion_logs_session_time", "session_id", "timestamp"),
@@ -57,6 +82,6 @@ class EmotionLog(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<EmotionLog(id={self.id}, session={self.session_id}, "
+            f"<EmotionLog(id={self.id}, session_id={self.session_id}, "
             f"emotion={self.emotion_label}, confidence={self.confidence:.2f})>"
         )

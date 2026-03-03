@@ -23,7 +23,7 @@ from app.config import settings
 from app.core.processor import AudioProcessor
 from app.api.websocket import websocket_stream, log_emotion_to_db
 from app.db.database import init_db, close_db, get_session
-from app.db.models import EmotionLog
+from app.db.models import EmotionLog, Session
 
 # ── Shared processor instance (models loaded once) ──────────
 processor = AudioProcessor(
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
     print("  VoxDynamics — Ready!")
     print(f"  API:    http://localhost:{settings.app_port}")
-    print(f"  Gradio: http://localhost:{settings.gradio_port}")
+    print(f"  Gradio: http://localhost:{settings.app_port}/")
     print("=" * 60)
 
     yield
@@ -96,16 +96,18 @@ async def health_check():
     }
 
 
-@app.get("/api/emotions/{session_id}")
+@app.get("/api/emotions/{session_uuid}")
 async def get_emotion_history(
-    session_id: str,
+    session_uuid: str,
     limit: int = Query(default=100, le=1000),
 ):
     """Retrieve emotion prediction history for a session."""
     async with get_session() as session:
+        # Join EmotionLog with Session to filter by uuid
         stmt = (
             select(EmotionLog)
-            .where(EmotionLog.session_id == session_id)
+            .join(EmotionLog.session)
+            .where(Session.session_uuid == session_uuid)
             .order_by(desc(EmotionLog.timestamp))
             .limit(limit)
         )
@@ -113,26 +115,62 @@ async def get_emotion_history(
         logs = result.scalars().all()
 
     return {
-        "session_id": session_id,
+        "session_uuid": session_uuid,
         "count": len(logs),
         "data": [log.to_dict() for log in reversed(logs)],
     }
 
 
+from sqlalchemy.sql import func
+
 @app.get("/api/sessions")
 async def list_sessions():
-    """List all available session IDs."""
+    """List all sessions with aggregated metadata for the sidebar."""
     async with get_session() as session:
+        # Complex query to join, aggregate, and format
         stmt = (
-            select(EmotionLog.session_id)
-            .distinct()
-            .order_by(desc(EmotionLog.session_id))
+            select(
+                Session.session_uuid,
+                Session.start_time,
+                Session.end_time,
+                func.count(EmotionLog.id).label("count"),
+                func.avg(EmotionLog.arousal).label("avg_a"),
+                func.avg(EmotionLog.dominance).label("avg_d"),
+                func.avg(EmotionLog.valence).label("avg_v")
+            )
+            .outerjoin(EmotionLog, Session.id == EmotionLog.session_id)
+            .group_by(Session.id)
+            .order_by(desc(Session.start_time))
             .limit(50)
         )
         result = await session.execute(stmt)
-        session_ids = [row[0] for row in result.all()]
+        
+        sessions_data = []
+        for row in result.all():
+            uuid, start_t, end_t, count, avg_a, avg_d, avg_v = row
+            
+            # Format time
+            time_str = start_t.strftime("%H:%M:%S") if start_t else "Unknown"
+            date_str = start_t.strftime("%m/%d") if start_t else ""
+            
+            # Calculate duration
+            if start_t and end_t:
+                duration_s = (end_t - start_t).total_seconds()
+                dur_str = f"{duration_s:.0f}s"
+            else:
+                dur_str = "Active..."
+                
+            sessions_data.append({
+                "UUID": uuid,
+                "Time": f"{date_str} {time_str}",
+                "Dur.": dur_str,
+                "Points": count or 0,
+                "A": round(avg_a or 0.0, 2),
+                "D": round(avg_d or 0.0, 2),
+                "V": round(avg_v or 0.0, 2),
+            })
 
-    return {"sessions": session_ids}
+    return {"sessions": sessions_data}
 
 
 # ── WebSocket Endpoint ───────────────────────────────────────
@@ -153,25 +191,22 @@ async def stream_endpoint(websocket: WebSocket):
     await websocket_stream(websocket, ws_processor)
 
 
+# ── Gradio Integration ───────────────────────────────────────
+
+from app.ui.dashboard import create_dashboard
+import gradio as gr
+
+# Create the Gradio dashboard
+dashboard = create_dashboard(processor)
+
+# Mount Gradio to FastAPI at root
+app = gr.mount_gradio_app(app, dashboard, path="/")
+
+
 # ── Main Entry Point ─────────────────────────────────────────
 
-def start_gradio():
-    """Launch Gradio UI in a background thread."""
-    from app.ui.dashboard import create_dashboard
-    demo = create_dashboard(processor)
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=settings.gradio_port,
-        share=False,
-        prevent_thread_lock=True,
-    )
-
-
 if __name__ == "__main__":
-    # Start Gradio in background
-    import threading
-    gradio_thread = threading.Thread(target=start_gradio, daemon=True)
-    gradio_thread.start()
+    pass
 
     # Start FastAPI
     uvicorn.run(
