@@ -207,3 +207,83 @@ class AudioProcessor:
             "dominance": self._ema_dominance,
             "valence": self._ema_valence,
         }
+
+    def process_file(
+        self,
+        waveform: np.ndarray,
+        sample_rate: int = 16000,
+        window_s: float = 2.0,
+        hop_s: float = 0.5,
+    ) -> list:
+        """
+        Analyze a full audio file by sliding a window across it.
+
+        Args:
+            waveform: 1-D float32 numpy array (entire file).
+            sample_rate: Input sample rate (will resample to 16 kHz).
+            window_s: Window size in seconds for each analysis frame.
+            hop_s: Hop (step) size in seconds between frames.
+
+        Returns:
+            List of dicts, one per frame:
+            [{ time_s, emotion_label, arousal, dominance, valence,
+               confidence, emoji, color, is_speech }, ...]
+        """
+        # Ensure float32 mono
+        if waveform.dtype != np.float32:
+            waveform = waveform.astype(np.float32)
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=-1)
+
+        # Normalize
+        max_val = np.max(np.abs(waveform))
+        if max_val > 0:
+            waveform = waveform / max_val
+
+        # Resample to 16 kHz if needed
+        if sample_rate != self.sample_rate:
+            ratio = sample_rate / self.sample_rate
+            indices = np.arange(0, len(waveform), ratio).astype(int)
+            indices = indices[indices < len(waveform)]
+            waveform = waveform[indices]
+
+        window_samples = int(self.sample_rate * window_s)
+        hop_samples = int(self.sample_rate * hop_s)
+        total_samples = len(waveform)
+
+        results = []
+
+        for start_idx in range(0, total_samples - window_samples + 1, hop_samples):
+            chunk = waveform[start_idx : start_idx + window_samples]
+            time_s = round(start_idx / self.sample_rate, 2)
+
+            # VAD check
+            is_speech, _ = self._vad.detect_speech(chunk, self.sample_rate)
+
+            if is_speech:
+                raw = self._emotion.predict(chunk, self.sample_rate)
+                results.append({
+                    "time_s": time_s,
+                    "emotion_label": raw["emotion_label"],
+                    "arousal": round(raw["arousal"], 4),
+                    "dominance": round(raw["dominance"], 4),
+                    "valence": round(raw["valence"], 4),
+                    "confidence": round(raw["confidence"], 4),
+                    "emoji": raw["emoji"],
+                    "color": raw["color"],
+                    "is_speech": True,
+                })
+            else:
+                results.append({
+                    "time_s": time_s,
+                    "emotion_label": "silence",
+                    "arousal": 0.0,
+                    "dominance": 0.0,
+                    "valence": 0.0,
+                    "confidence": 0.0,
+                    "emoji": "🔇",
+                    "color": "#333333",
+                    "is_speech": False,
+                })
+
+        return results

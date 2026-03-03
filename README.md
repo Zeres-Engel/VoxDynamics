@@ -65,5 +65,3 @@ Historical session table and detailed session-specific analytics.
 - **Asynchronous Data Layer**: Non-blocking ingestion ensures zero latency in the audio processing loop during DB writes.
 
 ---
-
-Built with ❤️ by Antigravity AI.
