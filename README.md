@@ -55,6 +55,12 @@ File preview with amplitude waveform, duration, and file size. One click to star
 
 ### Historical Session Archive
 
+![History Screen](docs/images/history_screen.png)
+
+All past sessions are stored in PostgreSQL and accessible in the archive table. Each row shows session metadata including segment count and dimensional averages.
+
+---
+
 ### Audio Validation — Mixed Emotions Sample
 
 This sample was used to validate the final 80% accuracy pipeline. It contains 5 consecutive emotions: `Angry` → `Happy` → `Surprised` → `Disgust` → `Angry (low-intensity/Sad)`.
