@@ -93,28 +93,18 @@ The test file below contains **5 consecutive emotions** concatenated with silenc
 
 ## 🧠 Model Research & Selection
 
-> This is the core intellectual work of VoxDynamics. Two fundamentally different AI architectures were evaluated before selecting the final model.
+> Two architectures were benchmarked before arriving at the final CNN-based solution.
 
-### Model A — Wav2Vec2-Large-Robust (Dimensional, Wav2Vec2)
+### Research Phase — Wav2Vec2 (Tried & Discarded)
 
-| | Detail |
-| :--- | :--- |
-| **Architecture** | Facebook Wav2Vec2 fine-tuned on MSP-Podcast for continuous A/D/V prediction |
-| **Output** | Continuous 3D space (Arousal, Dominance, Valence) mapped to discrete labels via centroid geometry |
-| **Training** | Pre-trained on 960h LibriSpeech + MSP-Podcast fine-tune |
+The first approach used **Wav2Vec2-Large-Robust** outputting continuous Arousal/Dominance/Valence scores mapped to emotion labels via centroid geometry.
 
-**Accuracy Progression with Model A:**
-
-| Experiment | Method | Accuracy |
+| Experiment | Method | Result |
 | :--- | :--- | :---: |
-| Exp 1 — Baseline | Fixed cosine centroids (theoretical) | 25.40% |
-| Exp 2 — Calibrated | Dynamic centroids computed from 1,441 real samples | 34.70% |
+| Exp 1 — Fixed centroids | Cosine nearest-centroid | 25.40% |
+| Exp 2 — Calibrated centroids | Data-driven re-alignment | 34.70% |
 
-**Why Model A was abandoned:**
-- Continuous A/D/V space has severe **cluster overlap** — `Angry` and `Surprised` are nearly identical in Arousal dimension
-- The model **prioritizes Arousal over Valence**, making it blind to whether a high-energy emotion is positive (Happy) or negative (Angry)
-- 3 emotion classes (`Happy`, `Fearful`, `Surprised`) had **0% accuracy** at baseline — meaning the centroid mapping fundamentally fails for these emotions
-- Max achievable accuracy with this architecture plateaued around **~35%** regardless of calibration strategy
+This approach was **discontinued**: 3 emotion classes (`Happy`, `Fearful`, `Surprised`) had **0% recall** at baseline, and the accuracy hard ceiling was ~35% — insufficient for a production system.
 
 ---
 
@@ -227,12 +217,10 @@ Input (2376, 1)
 | **AI — VAD** | Silero VAD v4 (PyTorch) | Voice Activity Detection, speech island detection |
 | **AI — CNN** | TensorFlow 2.x / Keras | Deep 1D-CNN emotion classification |
 | **Audio DSP** | librosa, soundfile, numpy | Resampling, feature extraction (ZCR/RMS/MFCC) |
-| **Frontend** | Vanilla HTML / CSS / JS | SPA dashboard — custom-built (no Gradio/Streamlit) |
+| **Frontend** | Vanilla HTML / CSS / JS | Custom SPA — full control over Plotly charts & dark-glass UI |
 | **Visualization** | Plotly.js | 5 interactive charts — waveform, radar, donut, stream |
 | **Audio Player** | WaveSurfer.js | Animated waveform preview player |
 | **Container** | Docker + Docker Compose | One-command deployment of app + DB |
-
-> **Note on Presentation Layer**: The project brief suggests Gradio or Streamlit. VoxDynamics intentionally uses a **custom vanilla JS SPA** instead — this decision allows full control over the interactive Plotly charts, proportional waveform rendering, and the custom dark-glass aesthetic that would not be achievable through Gradio's component model.
 
 ---
 
