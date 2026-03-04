@@ -58,6 +58,13 @@ class EmotionLog(Base):
     # Prediction confidence (0.0 – 1.0)
     confidence = Column(Float, nullable=False, default=0.0)
 
+    # Logical Timing
+    duration_s = Column(Float, nullable=True, default=0.5)
+    offset_s = Column(Float, nullable=True, default=0.0)
+
+    # Probability distribution (JSON string)
+    scores_json = Column(String(512), nullable=True)
+
     # Inference latency in milliseconds
     latency_ms = Column(Float, nullable=False, default=0.0)
 
@@ -68,6 +75,7 @@ class EmotionLog(Base):
     )
 
     def to_dict(self) -> dict:
+        import json
         return {
             "id": self.id,
             "session_id": self.session_id,
@@ -77,6 +85,9 @@ class EmotionLog(Base):
             "dominance": round(self.dominance, 4),
             "valence": round(self.valence, 4),
             "confidence": round(self.confidence, 4),
+            "time_s": round(self.offset_s or 0.0, 2),
+            "duration": round(self.duration_s or 0.5, 2),
+            "scores": json.loads(self.scores_json) if self.scores_json else None,
             "latency_ms": round(self.latency_ms, 2),
         }
 

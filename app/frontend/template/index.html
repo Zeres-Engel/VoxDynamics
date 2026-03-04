@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoxDynamics — AI Speech Emotion Analysis</title>
+    <meta name="description"
+        content="Upload audio conversations and analyze emotions in real-time with AI-powered speech analysis." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet" />
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <link rel="stylesheet" href="/static/css/style.css?v=10" />
+</head>
+
+<body>
+
+    <!-- ━━━━ FULLSCREEN ANALYSIS OVERLAY ━━━━ -->
+    <div id="analysis-overlay">
+        <div class="overlay-content">
+            <div class="overlay-ring"></div>
+            <div class="overlay-title">AI PIPELINE RUNNING</div>
+            <div class="overlay-sub">Performing Voice Activity Detection &amp; Emotion Inference</div>
+            <div class="overlay-bar-wrap">
+                <div class="overlay-bar-fill" id="overlay-bar"></div>
+            </div>
+            <div class="overlay-steps">
+                <div class="overlay-step active" id="step-upload">
+                    <div class="step-dot"></div>Upload
+                </div>
+                <div class="overlay-step" id="step-vad">
+                    <div class="step-dot"></div>VAD
+                </div>
+                <div class="overlay-step" id="step-emotion">
+                    <div class="step-dot"></div>Emotion
+                </div>
+                <div class="overlay-step" id="step-report">
+                    <div class="step-dot"></div>Report
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ━━━━ MAIN CONTENT ━━━━ -->
+    <div class="page-wrapper">
+
+        <!-- HEADER -->
+        <header class="fade-in">
+            <div class="logo">VOXDYNAMICS</div>
+            <div class="tagline">Deep Emotion Extraction Layer</div>
+            <div style="margin-top:14px;">
+                <span class="status-pill" id="model-status">
+                    <span class="status-dot"></span>
+                    <span id="model-status-text">Checking AI models...</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- UPLOAD CARD -->
+        <div class="upload-card fade-in" style="animation-delay:0.1s;">
+            <div class="upload-icon-wrap">
+                <div class="upload-icon-ring"></div>
+                <i class="ph-duotone ph-waveform upload-icon-glyph"></i>
+            </div>
+            <div class="upload-headline">Audio Conversation Intelligence</div>
+            <div class="upload-sub">Upload a conversation to extract emotional trajectories segment by segment</div>
+
+            <div class="drop-zone" id="drop-zone">
+                <input type="file" id="audio-file-input" accept="audio/*" />
+                <div class="drop-zone-text">
+                    <i class="ph ph-cloud-arrow-up drop-zone-icon"></i>
+                    <div><span>Browse file</span> or drag &amp; drop here</div>
+                    <small>Supports .wav, .mp3, .flac &mdash; Max 50MB</small>
+                </div>
+            </div>
+
+            <!-- Custom Audio Player -->
+            <div id="audio-preview-wrap" style="display:none;">
+                <div class="file-info-header">
+                    <i class="ph-fill ph-file-audio"></i>
+                    <span id="file-name-text"></span>
+                </div>
+                <div class="player-controls">
+                    <button class="play-btn" id="play-pause-btn"><i class="ph-fill ph-play"></i></button>
+                    <div class="waveform-container" id="waveform"></div>
+                    <div class="time-display" id="time-display">0:00</div>
+                </div>
+            </div>
+
+            <div>
+                <button class="btn-analyze" id="analyze-btn" disabled onclick="startAnalysis()">
+                    <i class="ph-bold ph-magic-wand"></i>
+                    Start Deep Analysis
+                </button>
+            </div>
+
+            <div class="result-banner" id="status-msg" style="display:none;"></div>
+        </div>
+
+        <!-- ━━━━ RESULTS SECTION ━━━━ -->
+        <div id="results-section">
+            <div class="section-label">Analysis Report</div>
+
+            <!-- Row 1: Dominant Emotion + Radar -->
+            <div class="report-grid-2">
+                <div class="metric-card dominant-card">
+                    <div class="metric-label">Dominant Emotion</div>
+                    <div class="metric-value highlight" id="dominant-emotion">--</div>
+                    <div class="metric-sub">detected across speech segments</div>
+                    <div class="dominant-stats" id="dominant-stats"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title"><i class="ph-bold ph-radar"></i> Emotion Signature</div>
+                    <div id="radar-chart"></div>
+                </div>
+            </div>
+
+            <!-- Row 2: Quick Stats -->
+            <div class="report-grid-3">
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="ph-duotone ph-speaker-high"></i></div>
+                    <div>
+                        <div class="stat-value" id="n-segments">--</div>
+                        <div class="stat-label">Speech Segments</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:rgba(0,255,135,0.1);"><i class="ph-duotone ph-timer"
+                            style="color:#00ff87;"></i></div>
+                    <div>
+                        <div class="stat-value" id="audio-duration">--</div>
+                        <div class="stat-label">Audio Duration</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:rgba(171,71,188,0.1);"><i class="ph-duotone ph-target"
+                            style="color:#ab47bc;"></i></div>
+                    <div>
+                        <div class="stat-value" id="avg-confidence">--</div>
+                        <div class="stat-label">Avg Confidence</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Dimension Bars -->
+            <div class="metric-card" style="margin-bottom:16px;">
+                <div class="chart-title" style="margin-bottom:14px;"><i class="ph-bold ph-equalizer"></i> Emotional
+                    Dimensions (Session Average)</div>
+                <div class="dim-bar-row">
+                    <div class="dim-bar">
+                        <span class="dim-bar-label">Arousal</span>
+                        <div class="dim-bar-track">
+                            <div class="dim-bar-fill arousal" id="bar-arousal" style="width:0%"></div>
+                        </div>
+                        <span class="dim-bar-val" id="val-arousal">0.000</span>
+                    </div>
+                    <div class="dim-bar">
+                        <span class="dim-bar-label">Dominance</span>
+                        <div class="dim-bar-track">
+                            <div class="dim-bar-fill dominance" id="bar-dominance" style="width:0%"></div>
+                        </div>
+                        <span class="dim-bar-val" id="val-dominance">0.000</span>
+                    </div>
+                    <div class="dim-bar">
+                        <span class="dim-bar-label">Valence</span>
+                        <div class="dim-bar-track">
+                            <div class="dim-bar-fill valence" id="bar-valence" style="width:0%"></div>
+                        </div>
+                        <span class="dim-bar-val" id="val-valence">0.000</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 4: Emotion Waveform -->
+            <div class="chart-card" style="margin-bottom:16px;">
+                <div class="chart-title"><i class="ph-bold ph-waveform"></i> Emotion Waveform Analysis</div>
+                <p class="chart-hint">Audio waveform colored by detected emotion · Hover to explore each segment's
+                    details</p>
+                <div id="emotion-confidence-chart"></div>
+            </div>
+
+            <!-- Row 5: Charts Grid -->
+            <div class="report-grid-2" style="margin-bottom:16px;">
+                <div class="chart-card">
+                    <div class="chart-title"><i class="ph-bold ph-chart-pie-slice"></i> Emotion Distribution</div>
+                    <div id="pie-chart"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title"><i class="ph-bold ph-wave-sine"></i> Emotion Confidence Stream</div>
+                    <div id="timeline-chart"></div>
+                </div>
+            </div>
+
+
+
+            <!-- Row 7: Segment Table -->
+            <div class="log-card">
+                <div class="chart-title" style="margin-bottom:14px;"><i class="ph-bold ph-list-dashes"></i>
+                    Micro-Segment Detection Log</div>
+                <div class="log-table-wrap">
+                    <table class="log-table" id="segment-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Time Range (s)</th>
+                                <th>Inferred Emotion</th>
+                                <th>Confidence</th>
+                                <th>Arousal</th>
+                                <th>Dominance</th>
+                                <th>Valence</th>
+                            </tr>
+                        </thead>
+                        <tbody id="segment-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div><!-- /#results-section -->
+
+        <!-- SESSION HISTORY -->
+        <div class="history-card">
+            <div class="history-header">
+                <div class="chart-title" style="margin:0;"><i class="ph-bold ph-clock-counter-clockwise"></i> Historical
+                    Session Archive</div>
+                <button class="btn-refresh" onclick="loadHistory()"><i class="ph ph-arrow-counter-clockwise"></i>
+                    Refresh</button>
+            </div>
+            <div id="history-body">
+                <div class="empty-state"><i class="ph-duotone ph-hourglass-medium" style="font-size:2rem;"></i>
+                    <p>Loading session history...</p>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /.page-wrapper -->
+
+    <script src="/static/js/charts.js?v=13"></script>
+    <script src="/static/js/app.js?v=13"></script>
+</body>
+
+</html>
