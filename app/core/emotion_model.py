@@ -71,14 +71,14 @@ class EmotionModel(Wav2Vec2PreTrainedModel):
 # Normal conversational speech typically outputs A:~0.5, D:~0.5, V:~0.45 with this specific model.
 # These centroids are re-calibrated so that standard speech does not default to 'disgust'.
 EMOTION_CENTROIDS: Dict[str, Tuple[float, float, float]] = {
-    "happy":    (0.70, 0.60, 0.75),
-    "angry":    (0.75, 0.75, 0.25),
-    "sad":      (0.30, 0.30, 0.30),
-    "neutral":  (0.50, 0.50, 0.45),
-    "fear":     (0.65, 0.35, 0.30),
-    "surprise": (0.70, 0.55, 0.65),
-    "disgust":  (0.55, 0.65, 0.25),
-    "calm":     (0.35, 0.40, 0.60),
+    "happy":    (0.6657, 0.6773, 0.3635),
+    "angry":    (0.7706, 0.7728, 0.2627),
+    "sad":      (0.4891, 0.5401, 0.3579),
+    "neutral":  (0.4566, 0.5405, 0.3858),
+    "fear":     (0.6915, 0.6823, 0.3221),
+    "surprise": (0.7089, 0.7156, 0.3520),
+    "disgust":  (0.6010, 0.6375, 0.3078),
+    "calm":     (0.3677, 0.4640, 0.3696),
 }
 
 EMOTION_EMOJI: Dict[str, str] = {

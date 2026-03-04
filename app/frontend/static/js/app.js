@@ -279,8 +279,7 @@ function renderResults(data) {
         return;
     }
 
-    // Re-index time_s sequentially to ensure consistent chart rendering
-    speechSegs.forEach((s, i) => { s.time_s = i * 0.5; });
+    // Keep original meaningful timestamps from smart segmentation
 
     // Dominant Emotion
     document.getElementById('dominant-emotion').textContent =
@@ -325,14 +324,14 @@ function renderResults(data) {
     // Render charts AFTER section is visible (fixes alignment)
     requestAnimationFrame(() => {
         renderPieChart('pie-chart', speechSegs);
-        renderTimelineChart('timeline-chart', speechSegs);
+        renderTimelineChart('timeline-chart', segments);
         renderRadarChart('radar-chart', summary);
 
         // Waveform Emotion chart — use real peaks if available, else fallback
         if (audioPeaks && audioDuration > 0) {
-            renderWaveformEmotionChart('emotion-confidence-chart', audioPeaks, audioDuration, speechSegs);
+            renderWaveformEmotionChart('emotion-confidence-chart', audioPeaks, audioDuration, segments);
         } else {
-            renderEmotionConfidenceChart('emotion-confidence-chart', speechSegs);
+            renderEmotionConfidenceChart('emotion-confidence-chart', segments);
         }
     });
 
@@ -358,7 +357,7 @@ function renderSegmentTable(speechSegs) {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="color:var(--text-3);font-family:monospace;">${i + 1}</td>
-            <td style="color:var(--text-3);font-family:monospace;">${s.time_s.toFixed(1)}s</td>
+            <td style="color:var(--text-3);font-family:monospace;">${s.time_s.toFixed(1)} - ${(s.time_s + (s.duration_s || 0)).toFixed(1)}s</td>
             <td class="emotion-cell"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;vertical-align:middle;box-shadow:0 0 6px ${color};"></span>${s.emoji}&nbsp;${s.emotion_label.toUpperCase()}</td>
             <td><span class="badge" style="background:${color}18;color:${color};">${(s.confidence * 100).toFixed(1)}%</span></td>
             <td style="color:#f9a825;font-family:monospace;">${s.arousal.toFixed(3)}</td>
@@ -436,13 +435,15 @@ async function loadSessionDetails(uuid) {
             return;
         }
 
-        const speechSegs = data.data.map((log, i) => ({
-            time_s: i * 0.5,
+        const speechSegs = data.data.map((log) => ({
+            time_s: log.time_s || 0.0,
+            duration_s: log.duration || 0.5,
             emotion_label: log.emotion_label,
             arousal: log.arousal,
             dominance: log.dominance,
             valence: log.valence,
             confidence: log.confidence,
+            scores: log.scores || {}, // Full prob distribution from DB
             is_speech: true,
             emoji: EMOJI_MAP[log.emotion_label.toLowerCase()] || '🎭'
         }));
@@ -459,13 +460,19 @@ async function loadSessionDetails(uuid) {
         const avg_d = speechSegs.reduce((s, x) => s + x.dominance, 0) / speechSegs.length;
         const avg_v = speechSegs.reduce((s, x) => s + x.valence, 0) / speechSegs.length;
 
+        // Calculate actual session duration instead of assuming 0.5s * segments
+        const lastSeg = speechSegs[speechSegs.length - 1];
+        const totalDurationS = lastSeg ? (lastSeg.time_s + lastSeg.duration_s) : 10;
+
         const summary = {
             dominant_emotion: dominant,
             dominant_emoji: EMOJI_MAP[dominant.toLowerCase()] || '🎭',
             avg_arousal: avg_a,
             avg_dominance: avg_d,
             avg_valence: avg_v,
-            audio_duration_s: speechSegs.length * 0.5
+            avg_scores: {}, // Optional: could aggregate from speechSegs.scores
+            audio_duration_s: totalDurationS,
+            avg_confidence: speechSegs.reduce((s, x) => s + x.confidence, 0) / speechSegs.length
         };
 
         renderResults({ segments: speechSegs, summary });

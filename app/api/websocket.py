@@ -33,12 +33,14 @@ async def log_emotion_to_db(result: dict) -> None:
         async with get_session() as session:
             log_entry = EmotionLog(
                 session_id=db_session_obj.id,
-                timestamp=datetime.utcnow(),
                 emotion_label=result["emotion_label"],
                 arousal=result["arousal"],
                 dominance=result["dominance"],
                 valence=result["valence"],
                 confidence=result["confidence"],
+                duration_s=result.get("duration_s", 0.1),
+                offset_s=result.get("time_s", 0.0),
+                scores_json=json.dumps(result.get("scores", {})),
                 latency_ms=result["latency_ms"],
             )
             session.add(log_entry)

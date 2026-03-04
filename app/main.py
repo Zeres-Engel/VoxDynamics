@@ -13,6 +13,7 @@ Starts:
 import io
 import uuid
 import soundfile as sf
+import json
 import numpy as np
 import asyncio
 import uvicorn
@@ -57,7 +58,7 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Loading AI models (this may take a minute)...")
     processor.load_models()
     print("[STARTUP] Silero VAD loaded ✓")
-    print("[STARTUP] Wav2Vec2 Emotion model loaded ✓")
+    print("[STARTUP] High-Accuracy CNN Emotion model loaded ✓")
 
     print("=" * 60)
     print("  VoxDynamics — Ready!")
@@ -129,7 +130,7 @@ async def analyze_audio(file: UploadFile = File(...)):
         waveform = waveform / 32768.0
 
     # Run analysis
-    results = processor.process_file(waveform, sample_rate=sr, window_s=2.0, hop_s=0.5)
+    results = processor.process_file(waveform, sample_rate=sr, window_s=2.5, hop_s=0.5)
     speech_results = [r for r in results if r.get("is_speech")]
 
     if not speech_results:
@@ -140,9 +141,19 @@ async def analyze_audio(file: UploadFile = File(...)):
     dominant = max(set(labels), key=labels.count)
     dominant_emoji = next(r["emoji"] for r in speech_results if r["emotion_label"] == dominant)
 
-    avg_a = float(np.mean([r["arousal"] for r in speech_results]))
-    avg_d = float(np.mean([r["dominance"] for r in speech_results]))
-    avg_v = float(np.mean([r["valence"] for r in speech_results]))
+    # Calculate secondary dimension averages
+    avg_a = float(np.mean([r["arousal"] for r in speech_results])) if speech_results else 0.5
+    avg_d = float(np.mean([r["dominance"] for r in speech_results])) if speech_results else 0.5
+    avg_v = float(np.mean([r["valence"] for r in speech_results])) if speech_results else 0.5
+
+    # Calculate average emotion probabilities across the session (for Radar)
+    avg_scores = {}
+    if speech_results and "scores" in speech_results[0]:
+        all_emotions = speech_results[0]["scores"].keys()
+        for emo in all_emotions:
+            avg_scores[emo] = float(np.mean([r["scores"][emo] for r in speech_results]))
+    
+    avg_conf = float(np.mean([r["confidence"] for r in speech_results])) if speech_results else 0.0
     audio_duration_s = len(waveform) / sr
 
     summary = {
@@ -151,6 +162,8 @@ async def analyze_audio(file: UploadFile = File(...)):
         "avg_arousal": round(avg_a, 4),
         "avg_dominance": round(avg_d, 4),
         "avg_valence": round(avg_v, 4),
+        "avg_scores": avg_scores,
+        "avg_confidence": round(avg_conf, 4),
         "audio_duration_s": round(audio_duration_s, 2),
         "speech_segments": len(speech_results),
     }
@@ -171,6 +184,9 @@ async def analyze_audio(file: UploadFile = File(...)):
                     dominance=r["dominance"],
                     valence=r["valence"],
                     confidence=r.get("confidence", 0.0),
+                    duration_s=r.get("duration_s", 0.5),
+                    offset_s=r.get("time_s", 0.0),
+                    scores_json=json.dumps(r.get("scores", {})),
                     latency_ms=0.0,
                 )
                 db_session.add(log)

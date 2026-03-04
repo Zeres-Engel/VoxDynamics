@@ -14,7 +14,10 @@ python-multipart==0.0.20
 torch==2.5.1
 torchaudio==2.5.1
 transformers==4.47.1
-numpy==2.2.1
+numpy==1.23.5
+tensorflow==2.10.1
+keras==2.10.0
+scikit-learn
 
 # --- Audio Processing ---
 soundfile==0.13.1

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Audio
     sample_rate: int = 16000
     chunk_duration_ms: int = 300          # ms per chunk from client (reduced from 500ms)
-    buffer_duration_s: float = 2.0        # sliding window size (reduced from 3.0s)
+    buffer_duration_s: float = 2.5        # matching CNN input requirement (2.5s)
     ema_alpha: float = 0.3                # smoothing factor
 
     # VAD

@@ -6,7 +6,7 @@
 const EMOTION_COLORS = {
     happy: '#00ff87', sad: '#667eea', angry: '#ff416c',
     fearful: '#f9a825', surprised: '#ab47bc', neutral: '#9aa0b8',
-    disgust: '#ff8c00', calm: '#00e5ff', fear: '#f9a825', surprise: '#ab47bc',
+    disgust: '#ff8c00', calm: '#00e5ff', silence: '#2d2d38'
 };
 
 const PCFG = { displayModeBar: false, responsive: true };
@@ -47,216 +47,338 @@ function renderPieChart(containerId, speechSegs) {
 /* ═══════════════════════════════════════════════════════
    2. SENTIMENT WAVE — dimension timeline
 ═══════════════════════════════════════════════════════ */
-function renderTimelineChart(containerId, speechSegs) {
-    const times = speechSegs.map(s => s.time_s);
-    const dims = [
-        { key: 'arousal', color: '#f9a825', name: 'Arousal' },
-        { key: 'dominance', color: '#ab47bc', name: 'Dominance' },
-        { key: 'valence', color: '#00e5ff', name: 'Valence' },
-    ];
+function renderTimelineChart(containerId, allSegments) {
+    if (!allSegments.length) return;
 
-    const traces = dims.map(d => {
-        const rgb = hexToRgb(d.color);
+    // Use ALL segments (speech + silence) to ensure correct time gaps
+    const times = allSegments.map(s => s.time_s);
+
+    // Extract emotion labels from the first speech segment found
+    const firstSpeech = allSegments.find(s => s.is_speech);
+    if (!firstSpeech || !firstSpeech.scores) return;
+    const emotions = Object.keys(firstSpeech.scores);
+
+    const traces = emotions.map((emo) => {
+        const color = EMOTION_COLORS[emo] || '#9aa0b8';
+        // Map scores: if silence, score is 0
+        const vals = allSegments.map(s => (s.is_speech && s.scores) ? (s.scores[emo] || 0) : 0);
+        const rgb = hexToRgb(color);
+
         return {
-            type: 'scatter', mode: 'lines', x: times,
-            y: speechSegs.map(s => s[d.key]), name: d.name,
-            line: { color: d.color, width: 2.5, shape: 'spline' },
-            fill: 'tozeroy', fillcolor: `rgba(${rgb.r},${rgb.g},${rgb.b},0.06)`,
+            type: 'scatter', mode: 'lines', name: emo.charAt(0).toUpperCase() + emo.slice(1),
+            x: times, y: vals, stackgroup: 'one',
+            line: { color, width: 2, shape: 'spline' },
+            fillcolor: `rgba(${rgb.r},${rgb.g},${rgb.b},0.35)`,
+            hoverinfo: 'text',
+            hovertext: allSegments.map((s) => {
+                if (!s.is_speech) return `<b>SILENCE</b><br>⏱ ${s.time_s.toFixed(2)}s`;
+                return `<b>${emo.toUpperCase()}</b><br>⏱ ${s.time_s.toFixed(2)}s<br>🎯 Prob: <b>${(s.scores[emo] * 100).toFixed(1)}%</b>`;
+            }),
         };
     });
 
-    Plotly.newPlot(containerId, traces, {
-        paper_bgcolor: BG_T, plot_bgcolor: 'rgba(10,10,25,0.4)',
-        margin: { t: 10, b: 36, l: 38, r: 10 }, height: 260,
-        xaxis: { title: { text: 'Time (s)', font: { color: TICK, size: 11 } }, gridcolor: GRID, tickfont: { color: TICK }, zeroline: false },
-        yaxis: { range: [0, 1.05], gridcolor: GRID, tickfont: { color: TICK }, zeroline: false },
-        legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center', font: { color: '#9aa0b8', size: 11 }, bgcolor: BG_T },
+    const layout = {
+        paper_bgcolor: BG_T,
+        plot_bgcolor: 'rgba(10,10,25,0.4)',
+        margin: { t: 10, b: 36, l: 38, r: 10 },
+        height: 260,
+        xaxis: {
+            title: { text: 'Time (s)', font: { color: TICK, size: 11 } },
+            gridcolor: GRID,
+            tickfont: { color: TICK },
+            zeroline: false
+        },
+        yaxis: {
+            range: [0, 1.05],
+            gridcolor: GRID,
+            tickfont: { color: TICK },
+            zeroline: false,
+            title: { text: 'Confidence', font: { color: TICK, size: 10 } }
+        },
+        legend: {
+            orientation: 'h',
+            y: 1.15,
+            x: 0.5,
+            xanchor: 'center',
+            font: { color: '#9aa0b8', size: 10 },
+            bgcolor: BG_T
+        },
         font: PFONT,
-    }, PCFG);
+        hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#1a1a2e', font: { family: 'Outfit', color: '#fff' } },
+    };
+
+    Plotly.newPlot(containerId, traces, layout, PCFG);
 }
 
 /* ═══════════════════════════════════════════════════════
-   3. EMOTION+CONFIDENCE COMBO — interactive bar segments
-      Replaces both "Emotion Segment Map" and "Confidence Per Segment"
+   3. EMOTION+CONFIDENCE COMBO — proportional, spread waveform
+      Each segment occupies equal visual space based on duration ratio
 ═══════════════════════════════════════════════════════ */
-function renderEmotionConfidenceChart(containerId, speechSegs) {
-    // Generate synthetic waveform peaks that look like real audio, then
-    // delegate to renderWaveformEmotionChart for identical visual output.
-    const POINTS_PER_SEG = 80; // enough points for smooth curves
-    const totalDuration = speechSegs.length > 0
-        ? speechSegs[speechSegs.length - 1].time_s + 0.5
-        : 2;
+function renderEmotionConfidenceChart(containerId, allSegs) {
+    const totalDuration = allSegs.reduce((acc, s) => acc + (s.duration_s || 0.5), 0);
+    if (totalDuration === 0) return;
 
-    const fakePeaks = [];
+    const RESOLUTION = 600; // total data points across chart
 
-    // Seeded pseudo-random for deterministic results per segment
+    // Build peaks array: for each of the 600 points, find the matching segment
+    const peaks = new Float32Array(RESOLUTION);
+    const segForPoint = new Array(RESOLUTION);
+
+    // Precompute each segment's normalized start/end position (0-1)
+    let cursor = 0;
+    const segLayout = allSegs.map(s => {
+        const dur = s.duration_s || 0.5;
+        const normStart = cursor / totalDuration;
+        const normEnd = (cursor + dur) / totalDuration;
+        cursor += dur;
+        return { ...s, normStart, normEnd };
+    });
+
     function seededRand(seed) {
         let x = Math.sin(seed * 9301 + 49297) * 49297;
         return x - Math.floor(x);
     }
 
-    speechSegs.forEach((s, si) => {
-        const conf = s.confidence;
-        for (let i = 0; i < POINTS_PER_SEG; i++) {
-            const t = i / POINTS_PER_SEG;
-            // Combine multiple frequencies to simulate real speech energy
-            const seed = si * 1000 + i;
-            const burst = seededRand(seed) * 0.5;
-            const wave1 = Math.sin(t * Math.PI * 6 + si * 2.1) * 0.25;
-            const wave2 = Math.sin(t * Math.PI * 14 + si * 0.7) * 0.12;
-            const wave3 = Math.cos(t * Math.PI * 3 + si * 1.4) * 0.15;
-            // Envelope: fade in/out at segment edges for natural look
-            const envelope = Math.sin(t * Math.PI) * 0.6 + 0.4;
-            const peak = Math.abs((burst + wave1 + wave2 + wave3) * envelope * conf);
-            fakePeaks.push(Math.min(1, peak));
-        }
-    });
+    for (let i = 0; i < RESOLUTION; i++) {
+        const pos = i / RESOLUTION; // normalized position 0-1
+        const seg = segLayout.find(s => pos >= s.normStart && pos < s.normEnd);
+        segForPoint[i] = seg || null;
 
-    renderWaveformEmotionChart(containerId, fakePeaks, totalDuration, speechSegs);
+        if (!seg || !seg.is_speech) {
+            // Silence: very tiny noise floor
+            peaks[i] = seededRand(i * 7) * 0.02;
+        } else {
+            const progress = (pos - seg.normStart) / (seg.normEnd - seg.normStart);
+            const si = allSegs.indexOf(seg);
+            const seed = si * 1000 + i;
+            const burst = seededRand(seed) * 0.45;
+            const wave = Math.sin(progress * Math.PI * 10) * 0.25 + 0.28;
+            const envelope = Math.pow(Math.sin(progress * Math.PI), 0.6) * 0.9;
+            peaks[i] = Math.max(0.03, (burst + wave) * envelope * (seg.confidence || 0.8));
+        }
+    }
+
+    renderWaveformEmotionChart(containerId, peaks, totalDuration, allSegs, segLayout);
 }
 
 /* ═══════════════════════════════════════════════════════
    4. RADAR CHART — emotional dimension profile
 ═══════════════════════════════════════════════════════ */
 function renderRadarChart(containerId, summary) {
-    const dims = ['Arousal', 'Dominance', 'Valence', 'Arousal'];
-    const vals = [summary.avg_arousal, summary.avg_dominance, summary.avg_valence, summary.avg_arousal];
+    if (!summary.avg_scores) return;
+
+    const dataArr = Object.entries(summary.avg_scores);
+    // Sort logically for radar shape consistency (e.g. alphabetical)
+    dataArr.sort((a, b) => a[0].localeCompare(b[0]));
+
+    const labels = dataArr.map(([l]) => l.charAt(0).toUpperCase() + l.slice(1));
+    const values = dataArr.map(([, v]) => v);
+
+    // Connect back to start for closed loop
+    labels.push(labels[0]);
+    values.push(values[0]);
+
+    const domColor = EMOTION_COLORS[summary.dominant_emotion] || '#00e5ff';
+    const rgb = hexToRgb(domColor);
 
     Plotly.newPlot(containerId, [{
-        type: 'scatterpolar', r: vals, theta: dims,
-        fill: 'toself', fillcolor: 'rgba(0, 229, 255, 0.12)',
-        line: { color: '#00e5ff', width: 2.5 },
-        marker: { color: '#00ff87', size: 8 },
+        type: 'scatterpolar',
+        r: values,
+        theta: labels,
+        fill: 'toself',
+        fillcolor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`,
+        line: { color: domColor, width: 3 },
+        marker: { color: domColor, size: 7 },
         hoverinfo: 'r+theta',
     }], {
         paper_bgcolor: BG_T, plot_bgcolor: BG_T,
         margin: { t: 30, b: 30, l: 50, r: 50 }, height: 260, showlegend: false,
         polar: {
             bgcolor: 'rgba(10,10,25,0.4)',
-            radialaxis: { visible: true, range: [0, 1], tickfont: { color: TICK, size: 10 }, gridcolor: 'rgba(255,255,255,0.06)', linecolor: 'rgba(255,255,255,0.06)' },
-            angularaxis: { tickfont: { color: '#ccc', size: 12, family: 'Outfit' }, gridcolor: 'rgba(255,255,255,0.06)', linecolor: 'rgba(255,255,255,0.06)' }
+            radialaxis: {
+                visible: true,
+                range: [0, Math.max(...values) + 0.15],
+                tickfont: { color: TICK, size: 9 },
+                gridcolor: 'rgba(255,255,255,0.06)',
+                linecolor: 'rgba(255,255,255,0.06)'
+            },
+            angularaxis: {
+                tickfont: { color: '#ccc', size: 10, family: 'Outfit' },
+                gridcolor: 'rgba(255,255,255,0.06)',
+                linecolor: 'rgba(255,255,255,0.06)'
+            }
         },
         font: PFONT,
     }, PCFG);
 }
 
 /* ═══════════════════════════════════════════════════════
-   5. WAVEFORM EMOTION CHART — smooth, colored per-segment waveform
+   5. WAVEFORM EMOTION CHART — proportional per-segment coloring
+      X axis = normalized position (0→1), fills chart fully
 ═══════════════════════════════════════════════════════ */
-function renderWaveformEmotionChart(containerId, peaks, totalDuration, speechSegs) {
+function renderWaveformEmotionChart(containerId, peaks, totalDuration, allSegs, segLayout) {
     const N = peaks.length;
 
-    // Normalize peaks to 0-1 range so waveform fills chart
+    // If segLayout not provided (backward compat), build one from real timestamps
+    if (!segLayout) {
+        let cur = 0;
+        segLayout = allSegs.map(s => {
+            const dur = s.duration_s || 0.5;
+            const ns = cur / totalDuration, ne = (cur + dur) / totalDuration;
+            cur += dur;
+            return { ...s, normStart: ns, normEnd: ne };
+        });
+    }
+
+    // Normalize peaks to 0-1
     const maxP = Math.max(...peaks) || 1;
-    const normPeaks = peaks.map(p => p / maxP);
+    const normPeaks = Array.from(peaks).map(p => p / maxP);
 
-    // Map each peak to a time
-    const times = normPeaks.map((_, i) => (i / N) * totalDuration);
+    // X axis = normalized position 0→1
+    const xs = normPeaks.map((_, i) => i / N);
 
-    // Build segment lookup
-    const segRanges = speechSegs.map(s => ({
-        start: s.time_s, end: s.time_s + 0.5,
-        label: s.emotion_label, confidence: s.confidence,
-        arousal: s.arousal, dominance: s.dominance, valence: s.valence,
-        emoji: s.emoji || '',
-    }));
-
-    // Group consecutive points by segment for per-segment coloring
+    // ── Build colour-coded trace segments ───────────────
     const traces = [];
-    let currentSeg = null;
-    let segTimes = [], segYpos = [], segYneg = [], segHover = [];
+    let curSeg = null, curKey = null;
+    let bx = [], byPos = [], byNeg = [], bHover = [];
 
-    function flushTrace() {
-        if (!segTimes.length) return;
-        const c = currentSeg ? (EMOTION_COLORS[currentSeg.label] || '#00e5ff') : 'rgba(100,100,120,0.3)';
-        const rgb = hexToRgb(c.startsWith('#') ? c : '#666');
+    function flushSeg() {
+        if (!bx.length) return;
+        let col, isSilence;
+        if (!curSeg || !curSeg.is_speech) {
+            col = '#2a2a3d';
+            isSilence = true;
+        } else {
+            col = EMOTION_COLORS[curSeg.emotion_label] || '#00e5ff';
+            isSilence = false;
+        }
+        const rgb = hexToRgb(col.startsWith('#') ? col : '#555');
 
-        // Positive half (main waveform)
+        // Positive fill
         traces.push({
-            type: 'scatter', mode: 'lines', x: segTimes, y: segYpos,
-            fill: 'tozeroy', fillcolor: `rgba(${rgb.r},${rgb.g},${rgb.b},0.35)`,
-            line: { color: c, width: 1 },
-            hovertext: segHover, hoverinfo: 'text',
-            hoverlabel: { bgcolor: '#12122a', bordercolor: c, font: { family: 'Outfit', color: '#fff', size: 12 } },
+            type: 'scatter', mode: 'lines', x: [...bx], y: [...byPos],
+            fill: 'tozeroy',
+            fillcolor: isSilence ? 'rgba(30,30,50,0.3)' : `rgba(${rgb.r},${rgb.g},${rgb.b},0.3)`,
+            line: { color: isSilence ? 'rgba(80,80,100,0.25)' : col, width: isSilence ? 0.5 : 1.5, shape: 'spline', smoothing: 0.5 },
+            hovertext: [...bHover], hoverinfo: 'text',
+            hoverlabel: { bgcolor: '#0d0d20', bordercolor: col, font: { family: 'Outfit', color: '#fff', size: 12 } },
             showlegend: false,
         });
-        // Negative half (mirror reflection, dimmer)
+        // Mirror (negative)
         traces.push({
-            type: 'scatter', mode: 'lines', x: segTimes, y: segYneg,
-            fill: 'tozeroy', fillcolor: `rgba(${rgb.r},${rgb.g},${rgb.b},0.15)`,
-            line: { color: `rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`, width: 1 },
+            type: 'scatter', mode: 'lines', x: [...bx], y: [...byNeg],
+            fill: 'tozeroy',
+            fillcolor: isSilence ? 'rgba(20,20,40,0.2)' : `rgba(${rgb.r},${rgb.g},${rgb.b},0.15)`,
+            line: { color: isSilence ? 'rgba(60,60,80,0.15)' : `rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`, width: isSilence ? 0.3 : 0.8, shape: 'spline', smoothing: 0.5 },
             hoverinfo: 'skip', showlegend: false,
         });
     }
 
     for (let i = 0; i < N; i++) {
-        const t = times[i];
-        const seg = segRanges.find(s => t >= s.start && t < s.end);
-        const segKey = seg ? seg.label + seg.start : '__none__';
-        const prevKey = currentSeg ? currentSeg.label + currentSeg.start : '__none__';
+        const pos = xs[i];
+        const seg = segLayout.find(s => pos >= s.normStart && pos < s.normEnd);
+        const key = seg ? (seg.emotion_label + seg.normStart) : '__silence__';
 
-        if (segKey !== prevKey) {
-            // Flush previous segment trace
-            flushTrace();
-            currentSeg = seg;
-            segTimes = []; segYpos = []; segYneg = []; segHover = [];
+        if (key !== curKey) {
+            flushSeg();
+            curSeg = seg; curKey = key;
+            bx = []; byPos = []; byNeg = []; bHover = [];
         }
 
-        segTimes.push(t);
-        segYpos.push(normPeaks[i]);
-        segYneg.push(-normPeaks[i] * 0.7);
+        bx.push(pos);
+        byPos.push(normPeaks[i]);
+        byNeg.push(-normPeaks[i] * 0.7);
 
-        if (seg) {
-            segHover.push(
-                `<b>${seg.emoji} ${seg.label.charAt(0).toUpperCase() + seg.label.slice(1)}</b><br>` +
-                `⏱ ${t.toFixed(2)}s<br>` +
-                `🎯 Confidence: <b>${(seg.confidence * 100).toFixed(1)}%</b><br>` +
-                `A: ${seg.arousal.toFixed(3)} · D: ${seg.dominance.toFixed(3)} · V: ${seg.valence.toFixed(3)}`
+        if (seg && seg.is_speech) {
+            const realTime = seg.time_s + (pos - seg.normStart) * totalDuration;
+            bHover.push(
+                `<b>${seg.emoji || ''} ${(seg.emotion_label || '').charAt(0).toUpperCase() + (seg.emotion_label || '').slice(1)}</b><br>` +
+                `⏱ ${realTime.toFixed(2)}s · dur: ${(seg.duration_s || 0).toFixed(2)}s<br>` +
+                `🎯 Confidence: <b>${((seg.confidence || 0) * 100).toFixed(1)}%</b><br>` +
+                `A: ${(seg.arousal || 0.5).toFixed(2)} · D: ${(seg.dominance || 0.5).toFixed(2)} · V: ${(seg.valence || 0.5).toFixed(2)}`
             );
         } else {
-            segHover.push(`${t.toFixed(2)}s — <i>silence</i>`);
+            bHover.push(seg ? `<i>Silence</i> (${seg.time_s.toFixed(1)}s – ${(seg.time_s + (seg.duration_s || 0)).toFixed(1)}s)` : '');
         }
     }
-    flushTrace(); // flush last group
+    flushSeg();
 
-    // Segment boundary lines
-    const shapes = speechSegs.map(s => ({
-        type: 'line', x0: s.time_s, x1: s.time_s, y0: -0.8, y1: 1.1,
-        line: { color: 'rgba(255,255,255,0.15)', width: 1, dash: 'dot' },
-    }));
+    // ── Background rects & separator lines ──────────────
+    const shapes = [];
+    segLayout.forEach(s => {
+        const col = s.is_speech ? (EMOTION_COLORS[s.emotion_label] || '#555') : '#22223a';
+        const rgb = hexToRgb(col.startsWith('#') ? col : '#555');
 
-    // Emotion label annotations on top
+        // Background fill
+        shapes.push({
+            type: 'rect',
+            x0: s.normStart, x1: s.normEnd, y0: -0.85, y1: 1.0,
+            fillcolor: s.is_speech ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.07)` : 'rgba(10,10,20,0.15)',
+            line: { width: 0 },
+        });
+        // Left edge line
+        shapes.push({
+            type: 'line',
+            x0: s.normStart, x1: s.normStart, y0: -0.85, y1: 1.0,
+            line: { color: s.is_speech ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.4)` : 'rgba(50,50,70,0.3)', width: s.is_speech ? 1.5 : 0.5, dash: s.is_speech ? 'solid' : 'dot' },
+        });
+    });
+
+    // ── Annotations: emotion label + confidence ──────────
+    const speechSegs = segLayout.filter(s => s.is_speech);
     const annotations = speechSegs.map(s => {
-        const c = EMOTION_COLORS[s.emotion_label] || '#ccc';
+        const col = EMOTION_COLORS[s.emotion_label] || '#ccc';
+        const midX = (s.normStart + s.normEnd) / 2;
+        const label = (s.emotion_label || '').charAt(0).toUpperCase() + (s.emotion_label || '').slice(1);
         return {
-            x: s.time_s + 0.25, y: 1.02, yref: 'paper', showarrow: false,
-            text: `<b>${s.emotion_label.charAt(0).toUpperCase() + s.emotion_label.slice(1)}</b><br><span style="font-size:9px">${(s.confidence * 100).toFixed(0)}%</span>`,
-            font: { family: 'Outfit', size: 10, color: c },
+            x: midX, y: 1.05, yref: 'paper', showarrow: false, xanchor: 'center',
+            text: `<b>${label}</b><br><span style="font-size:9px;opacity:0.9">${((s.confidence || 0) * 100).toFixed(0)}%</span>`,
+            font: { family: 'Outfit', size: 11, color: col },
         };
     });
 
+    // ── Custom tick labels: real time at each segment boundary ──
+    const tickVals = [...new Set(segLayout.map(s => s.normStart))];
+    const tickText = tickVals.map(v => {
+        const seg = segLayout.find(s => s.normStart === v);
+        return seg ? `${seg.time_s.toFixed(1)}s` : '';
+    });
+    // Add final end
+    tickVals.push(1.0);
+    const lastSeg = segLayout[segLayout.length - 1];
+    tickText.push(lastSeg ? `${(lastSeg.time_s + (lastSeg.duration_s || 0)).toFixed(1)}s` : '');
+
     Plotly.newPlot(containerId, traces, {
         paper_bgcolor: BG_T,
-        plot_bgcolor: 'rgba(8,8,20,0.5)',
-        margin: { t: 32, b: 36, l: 10, r: 10 },
-        height: 200,
+        plot_bgcolor: 'rgba(6,6,18,0.6)',
+        margin: { t: 52, b: 42, l: 10, r: 10 },
+        height: 240,
         xaxis: {
-            title: { text: 'Time (s)', font: { color: TICK, size: 11 } },
-            gridcolor: 'rgba(255,255,255,0.03)', tickfont: { color: TICK }, zeroline: false,
+            title: { text: 'Audio Timeline (proportional)', font: { color: TICK, size: 10 } },
+            range: [0, 1],
+            tickvals: tickVals,
+            ticktext: tickText,
+            tickfont: { color: TICK, size: 9 },
+            gridcolor: 'rgba(255,255,255,0.025)',
+            zeroline: false,
         },
         yaxis: {
-            showticklabels: false, zeroline: false,
+            showticklabels: false,
+            zeroline: true, zerolinecolor: 'rgba(255,255,255,0.12)', zerolinewidth: 1,
             gridcolor: 'rgba(255,255,255,0.02)',
-            range: [-0.85, 1.15],
+            range: [-0.9, 1.2],
             fixedrange: true,
         },
-        shapes,
-        annotations,
+        shapes, annotations,
         showlegend: false,
         font: PFONT,
-        hovermode: 'closest',
+        hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#0d0d20', font: { family: 'Outfit', color: '#fff', size: 12 }, align: 'left' },
     }, PCFG);
 }
+
+
 
 /* ═══════════════════════════════════════════════════════
    UTILITY
