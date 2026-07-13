@@ -25,6 +25,16 @@
 
 ---
 
+## 🎬 Live Demo
+
+<p align="center">
+  <img src="docs/images/mini_demo.gif" alt="VoxDynamics Demo" width="720" />
+  <br/>
+  <em>Upload → Analyze → 5 interactive charts in real-time</em>
+</p>
+
+---
+
 ## ✨ Features at a Glance
 
 | | Feature | Description |
@@ -73,40 +83,90 @@ docker-compose up -d --build
 
 ## 🖼️ UI Showcase
 
-<details>
-<summary><b>📸 Click to expand screenshots</b></summary>
-<br/>
+### 1 · Upload & Preview
 
-> ⚠️ Screenshot images not yet available in this repository.
-> 
-> The UI features:
-> - **Home Page**: Drag & drop upload with WaveSurfer.js waveform preview
-> - **Analysis Report**: Dominant Emotion Card, Emotion Signature Radar, Emotion Waveform
-> - **Charts**: Emotion Distribution Donut, Confidence Stream, Micro-Segment Log
-> - **History**: Session archive with aggregated emotional dimensions
->
-> *(Place your screenshots in `docs/images/` as `home_page.png`, `analysis_screen.png`, `analysis_screen_2.png`, `history_screen.png`, and `mini_demo.gif`)*
+<p align="center">
+  <img src="docs/images/home_page.png" alt="Home Page" width="700" />
+  <br/>
+  <em>Drag & drop audio files — WaveSurfer.js renders waveform instantly</em>
+</p>
 
-</details>
+### 2 · Analysis Report
+
+<p align="center">
+  <img src="docs/images/analysis_screen.png" alt="Analysis Report" width="700" />
+  <br/>
+  <em>Dominant Emotion Card · Emotion Signature Radar · Emotion Waveform Analysis</em>
+</p>
+
+### 3 · Charts & Segment Log
+
+<p align="center">
+  <img src="docs/images/analysis_screen_2.png" alt="Analysis Screen 2" width="700" />
+  <br/>
+  <em>Emotion Distribution Donut · Confidence Stream · Micro-Segment Detection Log</em>
+</p>
+
+### 4 · Session History
+
+<p align="center">
+  <img src="docs/images/history_screen.png" alt="History Screen" width="700" />
+  <br/>
+  <em>Every analysis session persisted — browse, reload, explore past reports</em>
+</p>
 
 ---
 
 ## 🎯 How It Works
 
-```
-YOU UPLOAD AUDIO                AI PROCESSES                    YOU EXPLORE
-┌──────────────┐               ┌──────────────┐               ┌──────────────┐
-│              │   POST /api   │              │   JSON 200    │              │
-│  .wav / .mp3 │──────────────▶│  Silero VAD  │──────────────▶│  5 Charts    │
-│  / .flac     │               │  ▶ 1D-CNN    │               │  + Table     │
-│              │               │  ▶ PostgreSQL│               │  + Player    │
-└──────────────┘               └──────────────┘               └──────────────┘
-        │                              │                              │
-        │                          ~2-5s                         Click,
-        │                         (CPU only)                    Hover, Seek
+```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#0d0d1e', 'primaryTextColor': '#f0f0f8', 'primaryBorderColor': '#00e5ff', 'lineColor': '#00e5ff', 'secondaryColor': '#13132a', 'tertiaryColor': '#07070f'}}}%%
+flowchart LR
+    subgraph Input["🎤 INPUT"]
+        A1["🎵 .wav / .mp3 / .flac"]
+    end
+
+    subgraph Backend["⚙️ AI PIPELINE"]
+        B1["🌐 Global Normalization"]
+        B2["🧠 Silero VAD<br/>16kHz Scan"]
+        B3["📦 Speech Island<br/>Clustering"]
+        B4["🔬 Feature Extraction<br/>ZCR + RMS + MFCC"]
+        B5["🤖 1D-CNN<br/>97.25% Accuracy"]
+        B6["💾 PostgreSQL<br/>Session Storage"]
+    end
+
+    subgraph Frontend["🎨 VISUALIZATION"]
+        C1["📊 5 Plotly Charts"]
+        C2["🎧 WaveSurfer Player"]
+        C3["📋 Segment Log Table"]
+    end
+
+    A1 -->|"POST /api/analyze"| B1
+    B1 --> B2
+    B2 -->|"speech islands"| B3
+    B3 -->|"+ 200ms buffer"| B4
+    B4 -->|"2,376 features"| B5
+    B5 -->|"JSON 200"| B6
+    B5 --> C1
+    B5 --> C2
+    B5 --> C3
+
+    style Input fill:#0d0d1e,stroke:#00e5ff,stroke-width:2px,color:#f0f0f8
+    style Backend fill:#07070f,stroke:#00ff87,stroke-width:2px,color:#f0f0f8
+    style Frontend fill:#0d0d1e,stroke:#ab47bc,stroke-width:2px,color:#f0f0f8
+    style A1 fill:#13132a,stroke:#00e5ff,stroke-width:1px,color:#f0f0f8
+    style B1 fill:#13132a,stroke:#00ff87,stroke-width:1px,color:#f0f0f8
+    style B2 fill:#13132a,stroke:#00ff87,stroke-width:1px,color:#f0f0f8
+    style B3 fill:#13132a,stroke:#00ff87,stroke-width:1px,color:#f0f0f8
+    style B4 fill:#13132a,stroke:#00ff87,stroke-width:1px,color:#f0f0f8
+    style B5 fill:#13132a,stroke:#00ff87,stroke-width:1px,color:#f0f0f8
+    style B6 fill:#13132a,stroke:#f9a825,stroke-width:1px,color:#f0f0f8
+    style C1 fill:#13132a,stroke:#ab47bc,stroke-width:1px,color:#f0f0f8
+    style C2 fill:#13132a,stroke:#ab47bc,stroke-width:1px,color:#f0f0f8
+    style C3 fill:#13132a,stroke:#ab47bc,stroke-width:1px,color:#f0f0f8
 ```
 
-**In detail:** Audio is globally normalized → VAD scans at 16kHz → Speech islands are clustered (merging pauses < 0.8s) → Each segment gets a 200ms buffer → Features extracted (ZCR + RMS + MFCC = 2,376 values) → 1D-CNN predicts 1 of 7 emotions → Results stored in PostgreSQL → 5 interactive Plotly.js charts render.
+**Detailed Flow:** Audio is globally normalized → VAD scans at 16kHz → Speech islands clustered (merging pauses < 0.8s) → Each segment + 200ms buffer → Features extracted (ZCR + RMS + MFCC = 2,376 values) → 1D-CNN predicts 1 of 7 emotions → Results stored in PostgreSQL → 5 interactive Plotly.js charts render.
 
 ---
 
